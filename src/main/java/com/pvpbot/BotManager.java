@@ -9,7 +9,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.entity.EntityTypeTest;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -25,6 +24,9 @@ import java.util.UUID;
 final class BotManager {
     static final List<BotState> BOTS = new ArrayList<>();
     private static int counter = 0;
+
+    // setupTicks <= READY means the mannequin exists and is fully set up
+    private static final int READY = -1000;
 
     // ---------- enchant strings (component syntax) ----------
     private static final String PROT = "[enchantments={\"minecraft:protection\":4,\"minecraft:unbreaking\":3}]";
@@ -89,9 +91,13 @@ final class BotManager {
         String tag = "pvpbot_" + (++counter) + "_" + (System.currentTimeMillis() % 100000);
         BotState s = new BotState(p.getUUID(), tag, w.dimension(), name);
         s.level = level;
+        UUID id = UUID.randomUUID();
+        s.entityId = id;
         BOTS.add(s);
 
-        String nbt = "{Tags:[\"pvpbot\",\"" + tag + "\"],profile:\"" + name + "\",CustomName:\"" + name
+        long hi = id.getMostSignificantBits(), lo = id.getLeastSignificantBits();
+        String uuidNbt = "[I;" + (int) (hi >> 32) + "," + (int) hi + "," + (int) (lo >> 32) + "," + (int) lo + "]";
+        String nbt = "{UUID:" + uuidNbt + ",profile:\"" + name + "\",CustomName:\"" + name
                 + "\",CustomNameVisible:1b,immovable:0b,hide_description:1b}";
         // run as the player so it lands in the player's dimension
         src.getServer().getCommands().performPrefixedCommand(
@@ -127,7 +133,7 @@ final class BotManager {
         if (mine.isEmpty()) return fail(src, "Spawn a bot first: /bot <name> <level>");
         for (BotState s : mine) {
             s.skin = user;
-            if (s.entityId != null) {
+            if (s.setupTicks <= READY) {
                 run(src.getServer(), "data merge entity " + s.entityId + " {profile:\"" + user + "\"}");
             }
         }
@@ -199,7 +205,7 @@ final class BotManager {
         String note = "";
         for (BotState s : mine) {
             s.kit = k;
-            if (s.entityId != null) note = applyKit(src.getServer(), s);
+            if (s.setupTicks <= READY) note = applyKit(src.getServer(), s);
         }
         return ok(src, "Kit: " + raw + (note.isEmpty() ? "" : " - " + note));
     }
@@ -291,11 +297,10 @@ final class BotManager {
             ServerPlayer owner = pe instanceof ServerPlayer sp ? sp : null;
 
             // waiting for the summon command to actually create the entity
-            if (s.entityId == null) {
+            if (s.setupTicks > READY) {
                 if (--s.setupTicks > 0) continue;
-                List<? extends LivingEntity> found = w.getEntities(
-                        EntityTypeTest.forClass(LivingEntity.class), e -> e.getTags().contains(s.tag));
-                if (found.isEmpty()) {
+                Entity found = w.getEntity(s.entityId);
+                if (found == null) {
                     if (s.setupTicks < -40) {
                         if (owner != null) owner.sendSystemMessage(Component.literal(
                                 "Couldn't spawn the bot (mannequin summon failed)."));
@@ -303,8 +308,7 @@ final class BotManager {
                     }
                     continue;
                 }
-                LivingEntity e = found.get(0);
-                s.entityId = e.getUUID();
+                s.setupTicks = READY;
                 run(w.getServer(), "attribute " + s.entityId + " minecraft:fall_damage_multiplier base set 0");
                 String note = applyKit(w.getServer(), s);
                 if (owner != null && !note.isEmpty()) owner.sendSystemMessage(Component.literal(note));
@@ -325,3 +329,4 @@ final class BotManager {
         }
     }
         }
+                            
