@@ -11,7 +11,10 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 /**
  * The fighting brain. Runs once per tick for every bot.
@@ -20,12 +23,19 @@ import java.util.Random;
 final class BotAI {
     private static final Random RNG = new Random();
 
+    // our own tiny physics state per bot: [0] = vertical speed, [1] = 1 if standing on ground
+    private static final Map<UUID, double[]> PHYS = new HashMap<>();
+
+    private static double[] phys(LivingEntity bot) {
+        return PHYS.computeIfAbsent(bot.getUUID(), k -> new double[]{0, 1});
+    }
+
     // per-level tuning: {walk speed, base cooldown ticks, reach, miss chance, damage multiplier, reaction ticks}
     private static final double[][] LV = {
-            {0.17, 22, 2.8, 0.30, 0.70, 14},   // easy
-            {0.22, 14, 3.0, 0.15, 0.90, 8},    // mid
-            {0.27, 10, 3.2, 0.06, 1.00, 4},    // hard
-            {0.32, 8, 3.4, 0.00, 1.15, 1},     // extreme
+            {0.13, 22, 2.8, 0.30, 0.70, 14},   // easy
+            {0.18, 14, 3.0, 0.15, 0.90, 8},    // mid
+            {0.22, 10, 3.2, 0.06, 1.00, 4},    // hard
+            {0.26, 8, 3.4, 0.00, 1.15, 1},     // extreme
     };
 
     static void tick(ServerLevel w, LivingEntity bot, ServerPlayer target, BotState s) {
@@ -49,10 +59,9 @@ final class BotAI {
         double fx = dist > 1e-4 ? dx / dist : 0, fz = dist > 1e-4 ? dz / dist : 0;
         face(bot, dx, tp.y - bp.y, dz);
 
-        Vec3 vel = bot.getDeltaMovement();
-        double vy = vel.y;
-        boolean ground = bot.onGround();
-        if (!ground) vy = (vy - 0.08) * 0.98; else if (vy < 0) vy = 0;
+        double[] ph = phys(bot);
+        boolean ground = ph[1] > 0.5;
+        double vy = ground ? -0.1 : (ph[0] - 0.08) * 0.98;
 
         // ---- timers ----
         if (s.attackCd > 0) s.attackCd--;
@@ -223,7 +232,7 @@ final class BotAI {
                 Vec3 d = to.multiply(sp / len, sp / len, sp / len);
                 move(bot, d.x, Math.min(d.y, -0.5), d.z);
                 s.phaseTicks--;
-                if (bot.distanceToSqr(target) <= 3.6 * 3.6 || (bot.onGround() && s.phaseTicks < 55)) {
+                if (bot.distanceToSqr(target) <= 3.6 * 3.6 || (phys(bot)[1] > 0.5 && s.phaseTicks < 55)) {
                     double fall = Math.max(0, s.cy - bot.getY());
                     if (bot.distanceToSqr(target) <= 4.0 * 4.0 && fall > 1.5) {
                         double dmg = 6 + Math.min(fall, 25) * 1.6 + (s.kit.equals("spearmace") ? 6 : 0);
@@ -268,7 +277,7 @@ final class BotAI {
         if (RNG.nextDouble() < L[3]) return; // miss
         double d = dmg * L[4];
         if (crit) d *= 1.5;
-        DamageSource src = w.damageSources().mobAttack(bot);
+        DamageSource src = w.damageSources().generic();
         boolean hit = target.hurtServer(w, src, (float) d);
         if (!hit) return;
         SoundEvent snd = crit ? SoundEvents.PLAYER_ATTACK_CRIT : SoundEvents.PLAYER_ATTACK_STRONG;
@@ -291,9 +300,9 @@ final class BotAI {
     }
 
     private static void idle(LivingEntity bot) {
-        Vec3 v = bot.getDeltaMovement();
-        double vy = bot.onGround() ? 0 : (v.y - 0.08) * 0.98;
-        move(bot, 0, vy, 0);
+        double[] ph = phys(bot);
+        boolean ground = ph[1] > 0.5;
+        move(bot, 0, ground ? -0.1 : (ph[0] - 0.08) * 0.98, 0);
     }
 
     private static void face(LivingEntity bot, double dx, double dy, double dz) {
@@ -306,10 +315,15 @@ final class BotAI {
     }
 
     private static void move(LivingEntity bot, double vx, double vy, double vz) {
-        Vec3 v = new Vec3(vx, vy, vz);
-        bot.setDeltaMovement(v);
-        bot.move(MoverType.SELF, v);
+        double[] ph = phys(bot);
+        // we do all the moving ourselves, so stop the entity's own physics from also moving it
+        bot.setDeltaMovement(Vec3.ZERO);
+        bot.move(MoverType.SELF, new Vec3(vx, vy, vz));
+        bot.setDeltaMovement(Vec3.ZERO);
+        boolean grounded = bot.onGround();
+        ph[1] = grounded ? 1 : 0;
+        ph[0] = (grounded || bot.verticalCollision) ? 0 : vy;
         bot.resetFallDistance();
     }
-                    }
-                
+            }
+        
