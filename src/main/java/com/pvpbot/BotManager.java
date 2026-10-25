@@ -1,5 +1,6 @@
 package com.pvpbot;
 
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -216,7 +217,6 @@ final class BotManager {
 
     /** Sets gear + matching AI flags for s.kit. Returns an optional note for the player. */
     static String applyKit(MinecraftServer server, BotState s) {
-        String id = s.entityId.toString();
         String k = s.kit;
         String mat = k.equals("diamondsword") ? "diamond" : "netherite";
         String note = "";
@@ -272,17 +272,30 @@ final class BotManager {
             }
         }
 
-        set(server, id, "armor.head", head);
-        set(server, id, "armor.chest", chest);
-        set(server, id, "armor.legs", legs);
-        set(server, id, "armor.feet", feet);
-        set(server, id, "weapon.mainhand", main);
-        set(server, id, "weapon.offhand", off);
+        set(server, s, "armor.head", head);
+        set(server, s, "armor.chest", chest);
+        set(server, s, "armor.legs", legs);
+        set(server, s, "armor.feet", feet);
+        set(server, s, "weapon.mainhand", main);
+        set(server, s, "weapon.offhand", off);
         return note;
     }
 
-    private static void set(MinecraftServer server, String id, String slot, String item) {
-        run(server, "item replace entity " + id + " " + slot + " with " + item);
+    private static void set(MinecraftServer server, BotState s, String slot, String item) {
+        String cmd = "item replace entity " + s.entityId + " " + slot + " with " + item;
+        try {
+            server.getCommands().getDispatcher().execute(cmd, server.createCommandSourceStack());
+        } catch (CommandSyntaxException ex) {
+            ServerPlayer owner = server.getPlayerList().getPlayer(s.owner);
+            if (owner != null) {
+                owner.sendSystemMessage(Component.literal("Gear error (" + slot + "): " + ex.getMessage()));
+            }
+        } catch (RuntimeException ex) {
+            ServerPlayer owner = server.getPlayerList().getPlayer(s.owner);
+            if (owner != null) {
+                owner.sendSystemMessage(Component.literal("Gear error (" + slot + "): " + ex));
+            }
+        }
     }
 
     // ---------- per-tick ----------
@@ -328,5 +341,5 @@ final class BotManager {
             BotAI.tick(w, bot, owner, s);
         }
     }
-        }
-                            
+                }
+                  
