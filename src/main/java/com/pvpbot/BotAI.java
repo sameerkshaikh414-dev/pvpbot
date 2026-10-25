@@ -6,7 +6,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MoverType;
@@ -266,17 +265,12 @@ final class BotAI {
 
     private static void swing(ServerLevel w, LivingEntity bot, ServerPlayer target, BotState s,
                               double[] L, double dmg, boolean crit) {
-        bot.swing(InteractionHand.MAIN_HAND);
         if (RNG.nextDouble() < L[3]) return; // miss
         double d = dmg * L[4];
         if (crit) d *= 1.5;
         DamageSource src = w.damageSources().mobAttack(bot);
         boolean hit = target.hurtServer(w, src, (float) d);
         if (!hit) return;
-        double kx = target.getX() - bot.getX(), kz = target.getZ() - bot.getZ();
-        double kb = (s.sprint ? 0.8 : 0.4);
-        target.knockback(kb, -kx, -kz);
-        target.hurtMarked = true;
         SoundEvent snd = crit ? SoundEvents.PLAYER_ATTACK_CRIT : SoundEvents.PLAYER_ATTACK_STRONG;
         w.playSound(null, target.getX(), target.getY(), target.getZ(), snd, SoundSource.PLAYERS, 1f, 1f);
         if (crit) {
@@ -317,4 +311,5 @@ final class BotAI {
         bot.move(MoverType.SELF, v);
         bot.resetFallDistance();
     }
-        }
+                    }
+                
